@@ -4,6 +4,7 @@ import asyncio
 import logging
 import json
 import random
+import time
 from dataclasses import dataclass
 
 from lab_sim.agents.cognition import AgentAction, AgentCognition
@@ -139,20 +140,39 @@ class WorldSimulator:
     def run(self) -> None:
         ticks = self.settings.simulation.ticks
         for tick in range(1, ticks + 1):
+            t_tick = time.perf_counter()
             action_counts = self._run_tick(tick)
+            tick_elapsed = time.perf_counter() - t_tick
             self._maybe_log_tick_progress(tick, action_counts)
+            self.logger.info(
+                "TICK-END tick=%d elapsed=%.1fs actions=%s",
+                tick, tick_elapsed,
+                {k: v for k, v in action_counts.items() if v > 0},
+            )
 
     def _run_tick(self, tick: int) -> dict[str, int]:
+        _t0 = time.perf_counter()
+        self.logger.info("TICK-START tick=%d alive=%d",
+                         tick, sum(1 for s in self.states.values() if s.alive))
+
+        def _phase(label: str) -> None:
+            self.logger.info("TICK-PHASE tick=%d step=%s elapsed=%.1fs",
+                             tick, label, time.perf_counter() - _t0)
+
         # 1. Resolve pending verifications from previous tick
+        _phase("resolve_verifications")
         self._resolve_pending_verifications(tick)
 
         # 2. Spawn rumors into the world
+        _phase("spawn_rumors")
         self._spawn_rumors(tick)
 
         # 3. Propagate existing rumors through trust network
+        _phase("propagate_rumors")
         self._propagate_rumors(tick)
 
         # 4. Apply background survival pressure
+        _phase("background_pressure")
         self._apply_background_pressure(tick)
 
         # 5. Regenerate compute budgets (energy metabolism reset per tick)
@@ -188,6 +208,7 @@ class WorldSimulator:
         }
 
         # === PHASE A — PLAN (concurrent async decision collection) ===
+        _phase("PLAN")
         def peers_fn(name: str) -> list[str]:
             return [p for p in self.states.keys() if p != name and self.states[p].alive]
 
@@ -200,6 +221,7 @@ class WorldSimulator:
         )
 
         # === PHASE B — ACT (deterministic world update) ===
+        _phase("ACT")
         # decision_results is already sorted by agent_name in TickEngine.run_phases()
         for dr in decision_results:
             name = dr.agent_name
@@ -208,6 +230,7 @@ class WorldSimulator:
                 continue
             peers = peers_fn(name)
 
+            _t_agent = time.perf_counter()
             try:
                 outcome = self._apply_action(tick, state, dr.action, peers)
 
@@ -224,6 +247,12 @@ class WorldSimulator:
 
                 # Write state snapshot for ecological metrics
                 self._write_state_snapshot(name, tick, state, dr)
+
+                self.logger.debug(
+                    "ACT agent=%-12s tick=%d action=%-20s outcome=%-30s elapsed=%.0fms",
+                    name, tick, dr.action.action, outcome.outcome,
+                    (time.perf_counter() - _t_agent) * 1000,
+                )
 
             except Exception as exc:
                 self.logger.error(

@@ -69,16 +69,24 @@ class OllamaAdapter:
         t0 = time.perf_counter()
         # timeout=None means wait indefinitely — correct for a local single-GPU Ollama
         req_timeout = timeout_s if timeout_s and timeout_s > 0 else None
+        self._logger.info("OLLAMA request  model=%s prompt_len=%d timeout=%s",
+                          self._settings.llm_model, len(prompt), req_timeout)
         try:
             resp = requests.post(url, json=payload, timeout=req_timeout)
             resp.raise_for_status()
             data = resp.json()
         except requests.exceptions.Timeout as exc:
+            self._logger.warning("OLLAMA timeout after %.0fs", time.perf_counter() - t0)
             raise RuntimeError("LLM timeout") from exc
         except requests.exceptions.ConnectionError as exc:
+            self._logger.warning("OLLAMA connection error after %.0fs: %s",
+                                 time.perf_counter() - t0, exc)
             raise RuntimeError("LLM connection error") from exc
         latency_ms = (time.perf_counter() - t0) * 1000.0
-        return str(data.get("response", "")).strip(), latency_ms
+        response_text = str(data.get("response", "")).strip()
+        self._logger.info("OLLAMA response latency=%.0fms tokens_out~%d",
+                          latency_ms, len(response_text) // 4)
+        return response_text, latency_ms
 
     # ------------------------------------------------------------------
     # Public API

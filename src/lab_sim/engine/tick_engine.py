@@ -88,9 +88,20 @@ class TickEngine:
         if not alive:
             return []
 
+        t0 = time.perf_counter()
+        logger.info("PLAN start tick=%d agents=%d", tick, len(alive))
+
         # PLAN phase — run on the persistent loop (avoids loop creation overhead)
         results = self._loop.run_until_complete(
             self._plan_phase(tick, run_id, alive, states, inboxes, peers_fn)
+        )
+
+        elapsed = time.perf_counter() - t0
+        llm_count = sum(1 for r in results if not r.used_heuristic)
+        heuristic_count = len(results) - llm_count
+        logger.info(
+            "PLAN done  tick=%d elapsed=%.1fs llm=%d heuristic=%d",
+            tick, elapsed, llm_count, heuristic_count,
         )
 
         # Sort deterministically — actions always applied in agent_id order
@@ -245,6 +256,7 @@ class TickEngine:
 
         if not should_llm:
             action = cog._heuristic_policy(inbox, peers)
+            logger.info("PLAN agent=%-12s tick=%d  HEURISTIC  reason=trigger_not_met", name, tick)
             return DecisionResult(
                 agent_name=name,
                 action=action,
@@ -259,17 +271,23 @@ class TickEngine:
         recalled = []
         if can_retrieve:
             try:
+                t_mem = time.perf_counter()
                 memory_query = f"{state.goals} {inbox} {state.identity_signature()}"
                 recalled = cog.memory.retrieve(run_id, name, memory_query, tick, limit=8)
+                mem_ms = (time.perf_counter() - t_mem) * 1000.0
                 compute_consumed += self.cfg.compute_per_retrieval
                 state.compute_budget = max(0.0, state.compute_budget - self.cfg.compute_per_retrieval)
+                logger.info("PLAN agent=%-12s tick=%d  MEM-RETRIEVE  %.0fms  hits=%d", name, tick, mem_ms, len(recalled))
             except Exception as exc:
                 logger.warning("Memory retrieval failed agent=%s: %s", name, exc)
 
         # Build prompt
         prompt = cog._build_prompt(inbox, peers, recalled)
+        prompt_tokens_approx = len(prompt) // 4  # rough estimate
 
         # Async LLM call
+        logger.info("PLAN agent=%-12s tick=%d  LLM-START   prompt~%dtok  budget=%.2f",
+                    name, tick, prompt_tokens_approx, state.compute_budget)
         t0 = time.perf_counter()
         try:
             raw, latency_ms = await cog.ollama.async_generate(
@@ -282,9 +300,10 @@ class TickEngine:
             compute_consumed += self.cfg.compute_per_llm_call
             state.compute_budget = max(0.0, state.compute_budget - self.cfg.compute_per_llm_call)
 
-            logger.debug(
-                "llm call dispatched agent=%s tick=%d latency=%.0fms budget=%.3f",
+            logger.info(
+                "PLAN agent=%-12s tick=%d  LLM-DONE    latency=%.0fms  budget=%.2f  action=%s",
                 name, tick, latency_ms, state.compute_budget,
+                cog._parse_action(raw, peers).action if raw else "?",
             )
 
             # Apply entropy-based hallucination distortion (skip if no_entropy)
@@ -301,8 +320,8 @@ class TickEngine:
             latency_ms = (time.perf_counter() - t0) * 1000.0
             state.decision_latency_ms = latency_ms
             logger.warning(
-                "Async LLM failed agent=%s tick=%d error=%s — heuristic fallback",
-                name, tick, exc.__class__.__name__,
+                "PLAN agent=%-12s tick=%d  LLM-FAIL    latency=%.0fms  error=%s — heuristic fallback",
+                name, tick, latency_ms, exc.__class__.__name__,
             )
             action = cog._heuristic_policy(inbox, peers)
             used_heuristic = True
