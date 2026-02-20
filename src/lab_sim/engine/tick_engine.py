@@ -277,7 +277,12 @@ class TickEngine:
                 mem_ms = (time.perf_counter() - t_mem) * 1000.0
                 compute_consumed += self.cfg.compute_per_retrieval
                 state.compute_budget = max(0.0, state.compute_budget - self.cfg.compute_per_retrieval)
-                logger.info("PLAN agent=%-12s tick=%d  MEM-RETRIEVE  %.0fms  hits=%d", name, tick, mem_ms, len(recalled))
+                if mem_ms > 2000:
+                    logger.info("PLAN agent=%-12s tick=%d  MEM-RETRIEVE  %.0fms  hits=%d  (embed model cold-start)",
+                                name, tick, mem_ms, len(recalled))
+                else:
+                    logger.info("PLAN agent=%-12s tick=%d  MEM-RETRIEVE  %.0fms  hits=%d",
+                                name, tick, mem_ms, len(recalled))
             except Exception as exc:
                 logger.warning("Memory retrieval failed agent=%s: %s", name, exc)
 
@@ -285,9 +290,10 @@ class TickEngine:
         prompt = cog._build_prompt(inbox, peers, recalled)
         prompt_tokens_approx = len(prompt) // 4  # rough estimate
 
-        # Async LLM call
-        logger.info("PLAN agent=%-12s tick=%d  LLM-START   prompt~%dtok  budget=%.2f",
+        # Async LLM call — logs LLM-QUEUE now; OLLAMA request log fires after semaphore acquired
+        logger.info("PLAN agent=%-12s tick=%d  LLM-QUEUE   prompt~%dtok  budget=%.2f",
                     name, tick, prompt_tokens_approx, state.compute_budget)
+        logger.debug("PLAN agent=%s tick=%d  PROMPT:\n%s", name, tick, prompt)
         t0 = time.perf_counter()
         try:
             raw, latency_ms = await cog.ollama.async_generate(
