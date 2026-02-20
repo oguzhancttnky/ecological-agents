@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: llm_lab_postgres
+    environment:
+      POSTGRES_DB: lab
+      POSTGRES_USER: lab_user
+      POSTGRES_PASSWORD: lab_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lab_user -d lab"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  flyway:
+    image: flyway/flyway:10.20.1
+    container_name: llm_lab_flyway
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: -configFiles=/flyway/conf/flyway.conf migrate
+    volumes:
+      - ./flyway:/flyway/conf
+      - ./migrations:/flyway/sql
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm_lab_app
+    network_mode: host
+    depends_on:
+      postgres:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    volumes:
+      - ./outputs:/app/outputs
+      - ./src:/app/src
+      - ./scripts:/app/scripts
+    command: ["python", "-m", "lab_sim.experiments.run_experiments"]
+
+volumes:
+  pgdata:
