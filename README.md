@@ -1,52 +1,100 @@
 # EcologicalAgents
 
-EcologicalAgents is an experimental simulation project to explore whether LLM-based agents can develop distinct behavioral characteristics through accumulated experience, and whether this experiential differentiation enables them to produce more contextually competent responses in specific domains without prompt engineering or fine-tuning.
+EcologicalAgents is an experimental cognitive simulation platform designed to investigate whether LLM-based agents can develop stable behavioral traits when embedded in an environment that imposes computational survival constraints.
 
-In standard agent usage, behavioral variation is achieved by modifying inference-time inputs such as prompts, system roles, or retrieved context. When the same base model with fixed weights receives the same prompt, it produces the same effective decision policy. Any variation obtained this way is surface-level conditioning and does not persist across time.
+The goal is not to improve task performance or domain competence.
 
-This project investigates whether agents instantiated from the same base model can undergo behavioral divergence as a result of their interaction history within a constrained simulation environment. Each agent accumulates persistent internal state variables derived from lived experience, including:
+Instead, this project explores whether artificial agents instantiated from the same base model can undergo behavioral divergence over time as a result of:
 
-* memory of past outcomes
-* social relationships with other agents
-* access to and loss of resources
-* risks taken under environmental pressure
-* irreversible consequences of prior decisions
+- persistent memory
+- social relationships
+- reputation dynamics
+- irreversible consequences
+- uncertainty about the environment
+- limited ability to reason under growing internal complexity
 
-These factors accumulate over time and influence future decisions without modifying the underlying model weights.
+In biological systems, behavior is shaped by necessity:
 
-As a result, two agents initialized with the same weights and given identical prompts may produce different responses due to differences in their experiential trajectory. Over time, agents may form stable behavioral patterns or domain-specific tendencies that affect how they evaluate risk, cooperation, verification, or long-term planning.
+- energy metabolism
+- mortality risk
+- social exclusion
+- status loss
+- irreversibility of time
 
-Conceptually, this parallels Star Wars clone troopers: despite sharing identical training, individuals deployed to different battlefields develop distinct beliefs, tolerances, and decision-making styles as a consequence of their experiences.
+These biological factors do not merely create needs;
+they impose unavoidable decision costs.
 
----
+For humans:
 
-The goal of this project:
+- failing to eat leads to physical degradation or death
+- social exclusion reduces access to shared resources
+- loss of status limits cooperation opportunities
+- incorrect judgments may permanently damage reputation
+- missed opportunities cannot be recovered once time has passed
 
-For the agent to:
+As a result, decisions are not abstract choices.
+They carry irreversible long-term consequences.
 
-* its past losses
-* social relationships
-* resource access
-* risks taken
-* irreversible consequences experienced
+Biological necessity forces individuals to:
+- plan ahead
+- avoid misinformation
+- maintain alliances
+- verify uncertain claims
+- trade short-term gain against long-term stability
 
-permanently influence its future decision function.
+In contrast, LLM agents lack such constraints.
 
----
+Without biological (or computational) necessity:
+- delaying action is costless
+- being wrong has minimal impact
+- social betrayal has no lasting consequence
+- incorrect reasoning does not degrade future capability
+
+This removes any structural pressure to reason carefully.
+
+EcologicalAgents introduces computational survival constraints
+that functionally mirror biological necessity by ensuring that:
+
+- reasoning consumes limited computational capacity
+- memory accumulation increases internal entropy
+- trust loss reduces coordination opportunities
+- tool access depends on social reputation
+- certain decisions permanently alter future capability
+- time-limited opportunities expire if ignored
+
+These constraints create an artificial decision cost landscape,
+forcing agents to adapt their behavior under pressure.
+
+Adaptation, rather than instruction, becomes the driver of policy change.
 
 ```
-weights fixed
-prompt fixed
-
-memory_history(t) + social_graph(t) + consequence_trace(t) = policy(t)
+policy(t) =
+f(weights,
+memory_history(t),
+trust_graph(t),
+irreversible_events(t),
+information_uncertainty(t),
+temporal_decay(t))
 ```
 
-As time progresses:
+The model weights remain fixed.
+
+However, as time progresses:
 
 ```
 policy(t+1) ≠ policy(t)
 ```
 
-Without fine-tuning.
+due to the agent’s interaction history within the environment.
 
-The experiment evaluates whether domain-relevant behavioral differentiation can emerge from developmental trajectory alone, potentially enabling agents to produce more effective responses in specific contexts as a function of prior experience rather than solely instruction.
+The simulation investigates whether persistent exposure to social and epistemic pressure can lead to:
+
+- identity persistence
+- behavioral specialization
+- trust differentiation
+- verification strategies
+- stable decision tendencies
+
+without any modification to model parameters.
+
+EcologicalAgents therefore treats intelligence not solely as a function of model weights, but as an emergent property of interaction between memory, uncertainty, social structure, and irreversible consequences.
