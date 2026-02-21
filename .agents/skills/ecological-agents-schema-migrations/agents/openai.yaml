@@ -1,0 +1,4 @@
+interface:
+  display_name: "EcologicalAgents Schema Migrations"
+  short_description: "Manage Flyway migrations for EcologicalAgents"
+  default_prompt: "Use $ecological-agents-schema-migrations to add and validate a new migration for this repository."

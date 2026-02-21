@@ -1,0 +1,4 @@
+interface:
+  display_name: "EcologicalAgents Metrics Analysis"
+  short_description: "Compare EcologicalAgents metrics across ablations"
+  default_prompt: "Use $ecological-agents-metrics-analysis to summarize and compare mode-level metrics from outputs/."

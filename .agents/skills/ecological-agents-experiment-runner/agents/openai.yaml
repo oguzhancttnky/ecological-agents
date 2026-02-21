@@ -1,0 +1,4 @@
+interface:
+  display_name: "EcologicalAgents Experiment Runner"
+  short_description: "Run EcologicalAgents experiments reproducibly"
+  default_prompt: "Use $ecological-agents-experiment-runner to execute and validate an experiment batch for this repo."
