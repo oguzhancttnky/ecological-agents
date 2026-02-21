@@ -125,7 +125,7 @@ class AppSettings:
             ),
             ollama=OllamaSettings(
                 host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-                llm_model=os.getenv("LLM_MODEL", "llama3.2:1b"),
+                llm_model=os.getenv("LLM_MODEL", "qwen2.5:1.5b"),
                 embedding_model=os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
                 llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
                 timeout_seconds=int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "90")),

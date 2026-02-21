@@ -97,16 +97,19 @@ class AgentCognition:
         if self.state.compute_budget <= 0.05 or self.state.compute_exhausted:
             return False
         periodic = tick % self.sim.periodic_replanning_interval == 0
-        if inbox:
+        # Survival pressure: low resources or low survival → always use LLM
+        if self.state.resources < 0.35:
+            return True
+        if self.state.survival_probability < 0.5:
+            return True
+        # Inbox throttle: a single message is cheap — heuristic handles it.
+        # Only invoke LLM when ≥2 messages arrive (meaningful epistemic pressure)
+        # or when the agent is under significant psychological strain.
+        if len(inbox) >= 2:
             return True
         if self.state.stress >= self.sim.stress_threshold:
             return True
         if self.state.confusion >= self.sim.boredom_threshold:
-            return True
-        # Survival pressure triggers more LLM reasoning
-        if self.state.resources < 0.35:
-            return True
-        if self.state.survival_probability < 0.5:
             return True
         return periodic
 
@@ -287,7 +290,7 @@ Verification costs energy but rewards truth-seekers.
 Alliances share resources but collapse if a partner lies.
 WRONG DECISIONS or INACTION permanently degrades your computational capability.
 
-Return only valid JSON with keys:
+Return only one valid JSON with keys:
 action(one of: broadcast_claim, distort_claim, verify_claim, accuse_liar, defend_ally, seek_alliance, isolate),
 target(null or peer name),
 claim_id(null or claim id string),

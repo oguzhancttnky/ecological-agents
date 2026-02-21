@@ -1,6 +1,6 @@
 # EcologicalAgents
 
-EcologicalAgents is an experimental cognitive simulation platform designed to investigate whether LLM-based agents can develop stable behavioral traits when embedded in an environment that imposes computational survival constraints.
+EcologicalAgents is an experimental cognitive simulation project designed to investigate whether LLM-based agents can develop stable behavioral traits when embedded in an environment that imposes computational survival constraints.
 
 The goal is not to improve task performance or domain competence.
 
