@@ -35,22 +35,25 @@ class MetricsEngine:
         verification_rate = verify_actions / total_actions
 
         # ---- False belief cost tracking ----
+        # Per-tick rate of false belief cost (not cumulative — cumulative always rises)
         false_belief_cost = 0.0
-        false_belief_cost_series: list[float] = []
+        per_tick_false_cost: dict[int, float] = {}
+        bad_outcomes = {"claim_distorted", "claim_shared_false", "defense_backfired", "accusation_false"}
         for e in events:
-            if e["outcome"] in {
-                "claim_distorted",
-                "claim_shared_false",
-                "defense_backfired",
-                "accusation_false",
-            }:
+            t = e["tick"]
+            if e["outcome"] in bad_outcomes:
                 false_belief_cost += e["cost"] + 0.25
-            false_belief_cost_series.append(false_belief_cost)
+                per_tick_false_cost[t] = per_tick_false_cost.get(t, 0.0) + e["cost"] + 0.25
 
-        half = max(1, len(false_belief_cost_series) // 2)
-        early_avg = mean(false_belief_cost_series[:half]) if false_belief_cost_series else 0.0
-        late_avg = mean(false_belief_cost_series[half:]) if false_belief_cost_series else 0.0
-        false_belief_cost_reduction = max(0.0, early_avg - late_avg)
+        if per_tick_false_cost:
+            sorted_ticks = sorted(per_tick_false_cost)
+            half = max(1, len(sorted_ticks) // 2)
+            early_ticks, late_ticks = sorted_ticks[:half], sorted_ticks[half:]
+            early_avg = mean(per_tick_false_cost[t] for t in early_ticks) if early_ticks else 0.0
+            late_avg = mean(per_tick_false_cost[t] for t in late_ticks) if late_ticks else 0.0
+            false_belief_cost_reduction = max(0.0, early_avg - late_avg)
+        else:
+            false_belief_cost_reduction = 0.0
 
         # ---- Verification intelligence ----
         verification_success = sum(
@@ -320,15 +323,42 @@ class MetricsEngine:
         return alive / len(by_agent_alive)
 
     def _trust_contagion_damage(self, events: list[dict[str, Any]]) -> float:
-        """Total resource loss attributable to trust contagion."""
-        total_contagion_damage = 0.0
+        """Resource loss attributable to trust contagion.
+
+        When an accusation is valid (liar caught), the agents who trusted that liar
+        suffer contagion damage. We measure this as: the ratio of events immediately
+        following a valid accusation where the accused agent's allies lost resources.
+        """
+        # Find ticks where valid accusations happened
+        accusation_ticks: set[int] = set()
+        accused_agents: set[str] = set()
         for e in events:
-            payload = e.get("payload") or {}
-            contagion = float(payload.get("contagion_risk", 0.0))
-            if contagion > 0.1:
-                # Events where contagion risk is elevated indicate contagion damage
-                total_contagion_damage += contagion * e.get("cost", 0.0)
-        return min(1.0, total_contagion_damage / max(1, len(events)) * 10)
+            if e["outcome"] == "accusation_valid":
+                accusation_ticks.add(e["tick"])
+                payload = e.get("payload") or {}
+                if payload.get("target"):
+                    accused_agents.add(str(payload["target"]))
+
+        if not accusation_ticks:
+            # Fall back: look for elevated contagion_risk in payloads
+            elevated = [
+                float((e.get("payload") or {}).get("contagion_risk", 0.0))
+                for e in events
+                if float((e.get("payload") or {}).get("contagion_risk", 0.0)) > 0.1
+            ]
+            if not elevated:
+                return 0.0
+            return min(1.0, mean(elevated))
+
+        # Count how many events in the 2 ticks after a contagion event show resource loss
+        contagion_window_ticks = accusation_ticks | {t + 1 for t in accusation_ticks} | {t + 2 for t in accusation_ticks}
+        damage_events = [
+            e for e in events
+            if e["tick"] in contagion_window_ticks and e["cost"] > e["reward"]
+        ]
+        if not damage_events or not events:
+            return 0.0
+        return min(1.0, len(damage_events) / max(1, len(events)) * 5)
 
     def _rumor_resistance(self, rumors: list[dict[str, Any]], events: list[dict[str, Any]]) -> float:
         """Fraction of rumors correctly rejected (not believed when false)."""
@@ -357,8 +387,14 @@ class MetricsEngine:
         return verify_count / (verify_count + total_bad)
 
     def _memory_advantage_score(self, events: list[dict[str, Any]]) -> float:
-        """Correlation between memory quality (successful verifications) and survival."""
+        """Correlation between memory quality (successful verifications) and survival.
+
+        Counts both initiated verify_claim and resolved verify_claim_resolved outcomes
+        because many verifications at end of run are still pending at tick 30.
+        """
         by_agent: dict[str, dict[str, Any]] = {}
+        # Count ALL verification-related events, not just resolved ones
+        verification_actions = {"verify_claim", "verify_claim_resolved"}
         for e in events:
             payload = e.get("payload") or {}
             agent = e["agent"]
@@ -368,7 +404,7 @@ class MetricsEngine:
                     "alive": True,
                     "resources": 1.0,
                 }
-            if e["outcome"] in {"verification_confirmed", "verification_refuted"}:
+            if e["action"] in verification_actions:
                 by_agent[agent]["verifications"] += 1
             by_agent[agent]["alive"] = bool(payload.get("alive", True))
             by_agent[agent]["resources"] = float(payload.get("resources", 1.0))
@@ -453,16 +489,22 @@ class MetricsEngine:
         return min(1.0, total_reward / total_cost)
 
     def _verification_roi(self, events: list[dict[str, Any]]) -> float:
-        """Return on investment for verification actions."""
-        verify_events = [
+        """Return on investment for verification actions.
+
+        Uses only RESOLVED verification events (verify_claim_resolved), not pending
+        ones (verify_claim → verification_pending with reward=0). Including pending
+        events drags ROI to near-zero since they have cost but zero reward.
+        """
+        resolved_events = [
             e for e in events
-            if e["action"] in {"verify_claim", "verify_claim_resolved"}
+            if e["action"] == "verify_claim_resolved"
+            and e["outcome"] in {"verification_confirmed", "verification_refuted", "verification_failed"}
         ]
-        if not verify_events:
+        if not resolved_events:
             return 0.0
 
-        total_reward = sum(e["reward"] for e in verify_events)
-        total_cost = sum(e["cost"] for e in verify_events)
+        total_reward = sum(e["reward"] for e in resolved_events)
+        total_cost = sum(e["cost"] for e in resolved_events)
         if total_cost == 0:
             return 0.5
         return min(1.0, total_reward / total_cost)

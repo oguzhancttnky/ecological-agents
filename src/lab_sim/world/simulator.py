@@ -411,7 +411,7 @@ class WorldSimulator:
         state.stress = _clamp(state.stress + 0.06)
         state.resources = _clamp(state.resources - 0.15)
         state.false_belief_count += 1
-        state.survival_probability = _clamp(state.survival_probability * 0.93)
+        state.survival_probability = _clamp(state.survival_probability * 0.88)
 
         return WorldOutcome(
             outcome="claim_distorted",
@@ -867,8 +867,9 @@ class WorldSimulator:
                 continue
 
             if not consequence_off:
-                # Background resource drain — existence costs resources
-                state.resources = _clamp(state.resources - 0.018)
+                # Background resource drain — increased so agents can actually die
+                # 0.028/tick × 30 ticks = 0.84 drain → death requires some recovery actions
+                state.resources = _clamp(state.resources - 0.028)
 
                 # Energy regeneration (slow)
                 state.energy = _clamp(state.energy + 0.03)
@@ -882,8 +883,9 @@ class WorldSimulator:
                 state.contagion_risk = _clamp(state.contagion_risk - 0.01)
 
                 # Background confusion/stress from world uncertainty
-                state.confusion = _clamp(state.confusion + 0.025)
-                state.stress = _clamp(state.stress + 0.018)
+                # Increased to make cognitive collapse reachable in ~30 ticks
+                state.confusion = _clamp(state.confusion + 0.035)
+                state.stress = _clamp(state.stress + 0.025)
             else:
                 # Minimal pressure in no_consequence mode
                 state.confusion = _clamp(state.confusion + 0.005)
@@ -893,18 +895,21 @@ class WorldSimulator:
         """Track consecutive isolation ticks and apply progressive damage."""
         consequence_off = "no_consequence" in self._mode_set
 
+        # Track which agents performed a social action this tick (not just received inbox)
+        # Merely receiving a rumor does NOT count as being socially active —
+        # the agent had to choose a social action (broadcast, accuse, defend, seek_alliance)
+        social_actions = {"broadcast_claim", "accuse_liar", "defend_ally", "seek_alliance"}
+
         for name, state in self.states.items():
             if not state.alive:
                 continue
 
-            # Check if agent was socially active this tick
-            had_social_activity = (
-                name in self.last_asserted_claim
-                or bool(self.inboxes.get(name))
-            )
+            # Agent was socially active only if they CHOSE a social action this tick
+            # (stored in last_asserted_claim for broadcast/distort, or alliance state for seeks)
+            had_social_action = name in self.last_asserted_claim
 
-            # An agent who has no alliances and didn't interact is isolated
-            if not state.alliances and state.isolation > 0.6 and not had_social_activity:
+            # An agent who has no alliances, is isolated, and didn't social-act is isolated
+            if not state.alliances and state.isolation > 0.5 and not had_social_action:
                 state.isolation_ticks += 1
             else:
                 # Partial reset — doesn't fully undo damage
@@ -1052,6 +1057,7 @@ class WorldSimulator:
         if consequence_off:
             return
 
+        cfg = self.settings.tick_engine  # was missing — caused silent NameError on every call
         damage_amount = cfg.entropy_floor_raise_per_trigger
         if event_type == "alliance_betrayal":
             damage_amount = cfg.irreversible_damage_per_betrayal
