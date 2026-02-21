@@ -28,9 +28,12 @@ class MetricsEngine:
             return {}
 
         total_actions = len(events)
+        # Count only real verification attempts (exclude disabled/no-energy/no-claim).
         verify_actions = sum(
-            1 for e in events
-            if e["action"] in {"verify_claim", "verify_claim_resolved"}
+            1
+            for e in events
+            if e["action"] == "verify_claim"
+            and e["outcome"] not in {"verification_disabled", "verification_no_energy", "verification_no_claim"}
         )
         verification_rate = verify_actions / total_actions
 
@@ -57,12 +60,17 @@ class MetricsEngine:
 
         # ---- Verification intelligence ----
         verification_success = sum(
-            1 for e in events
-            if e["outcome"] in {"verification_confirmed", "verification_refuted"}
+            1
+            for e in events
+            if e["action"] == "verify_claim_resolved"
+            and e["outcome"] in {"verification_confirmed", "verification_refuted"}
         )
+        # Intelligence should measure resolved verification quality, not attempted-disabled calls.
         verification_total = sum(
-            1 for e in events
-            if e["action"] in {"verify_claim", "verify_claim_resolved"}
+            1
+            for e in events
+            if e["action"] == "verify_claim_resolved"
+            and e["outcome"] in {"verification_confirmed", "verification_refuted", "verification_failed"}
         )
         verification_intelligence = verification_success / max(1, verification_total)
 

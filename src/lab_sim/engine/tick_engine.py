@@ -309,7 +309,7 @@ class TickEngine:
             logger.info(
                 "PLAN agent=%-12s tick=%d  LLM-DONE    latency=%.0fms  budget=%.2f  action=%s",
                 name, tick, latency_ms, state.compute_budget,
-                cog._parse_action(raw, peers).action if raw else "?",
+                cog._parse_action(raw, peers, inbox).action if raw else "?",
             )
 
             # Apply entropy-based hallucination distortion (skip if no_entropy)
@@ -318,7 +318,7 @@ class TickEngine:
                 if cog.rng.random() < hallucination_prob:
                     raw = self._apply_entropy_distortion(raw, cog, name, tick)
 
-            action = cog._parse_action(raw, peers)
+            action = cog._parse_action(raw, peers, inbox)
             used_heuristic = False
             fallback_reason = ""
 

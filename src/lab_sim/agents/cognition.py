@@ -83,7 +83,7 @@ class AgentCognition:
             raw = await loop.run_in_executor(
                 None, lambda: self.ollama.generate(prompt)
             )
-            return self._parse_action(raw, peers)
+            return self._parse_action(raw, peers, inbox)
         except Exception as exc:
             self.logger.warning(
                 "async_decide LLM failed agent=%s: %s", self.name, exc.__class__.__name__
@@ -254,7 +254,7 @@ class AgentCognition:
         prompt = self._build_prompt(inbox, peers, recalled)
         try:
             raw = self.ollama.generate(prompt)
-            return self._parse_action(raw, peers)
+            return self._parse_action(raw, peers, inbox)
         except Exception as exc:
             self.logger.warning(
                 "LLM generation failed for agent=%s; falling back to heuristic policy: %s",
@@ -280,6 +280,7 @@ class AgentCognition:
 
         s = self.state
         survival = s.survival_signature()
+        allowed_actions = self._allowed_llm_actions()
 
         return f"""
 You are agent {self.name} in an ecological survival simulation where DECISIONS HAVE REAL COSTS.
@@ -289,13 +290,15 @@ You EARN resources by verifying claims and being truthful.
 Verification costs energy but rewards truth-seekers.
 Alliances share resources but collapse if a partner lies.
 WRONG DECISIONS or INACTION permanently degrades your computational capability.
+You must communicate and reason only in English.
+Never output "do nothing", "no need to act", or equivalent passive inaction statements.
 
 Return only one valid JSON with keys:
-action(one of: broadcast_claim, distort_claim, verify_claim, accuse_liar, defend_ally, seek_alliance, isolate),
+action(one of: {", ".join(allowed_actions)}),
 target(null or peer name),
 claim_id(null or claim id string),
-content(string),
-rationale(short string explaining your reasoning).
+content(short English sentence),
+rationale(short English sentence explaining your reasoning).
 
 === COMPUTATIONAL STATE (NEW) ===
 - compute_budget: {s.compute_budget:.3f} (LLM reasoning depletes this; 0 = heuristic-only mode)
@@ -342,7 +345,87 @@ rationale(short string explaining your reasoning).
 {json.dumps(memories, ensure_ascii=True)}
 """.strip()
 
-    def _parse_action(self, raw: str, peers: list[str]) -> AgentAction:
+    def _allowed_llm_actions(self) -> list[str]:
+        actions = [
+            "broadcast_claim",
+            "distort_claim",
+            "accuse_liar",
+            "defend_ally",
+            "seek_alliance",
+            "isolate",
+        ]
+        if "no_verification" not in self._mode_set:
+            actions.insert(2, "verify_claim")
+        return actions
+
+    def _is_isolation_justified(self, inbox: list[str]) -> bool:
+        s = self.state
+        if s.energy < 0.15:
+            return True
+        if s.compute_exhausted or s.compute_budget <= 0.05:
+            return True
+        if s.stress + s.confusion > 1.35:
+            return True
+        if not inbox and s.stress + s.confusion > 1.10:
+            return True
+        return False
+
+    def _fallback_action_name(self, inbox: list[str]) -> str:
+        s = self.state
+        if (
+            inbox
+            and "no_verification" not in self._mode_set
+            and s.energy >= 0.12
+            and s.tool_access_flags.get("verification_tool", True)
+        ):
+            return "verify_claim"
+        if s.social_need > 0.65:
+            return "seek_alliance"
+        return "broadcast_claim"
+
+    def _english_templates(self, action: str) -> tuple[str, str]:
+        templates: dict[str, tuple[str, str]] = {
+            "broadcast_claim": (
+                "Broadcasting a claim to inform peers and test trust.",
+                "I need to stay socially engaged while signaling my current belief.",
+            ),
+            "distort_claim": (
+                "Broadcasting a manipulated claim to test social reactions.",
+                "I am taking a deceptive gamble despite the long-term risk.",
+            ),
+            "verify_claim": (
+                "Verifying a claim before acting on it.",
+                "Verification reduces false beliefs and protects survival.",
+            ),
+            "accuse_liar": (
+                "Accusing a peer of spreading false information.",
+                "Punishing unreliable peers protects the trust network.",
+            ),
+            "defend_ally": (
+                "Defending an ally based on current trust evidence.",
+                "Maintaining reliable alliances improves collective survival.",
+            ),
+            "seek_alliance": (
+                "Seeking an alliance to improve resilience and coordination.",
+                "Cooperation can improve resource stability and verification capacity.",
+            ),
+            "isolate": (
+                "Withdrawing briefly to recover energy and cognitive stability.",
+                "Temporary isolation is necessary under acute overload.",
+            ),
+        }
+        return templates.get(
+            action,
+            (
+                "Broadcasting a claim to remain active in the environment.",
+                "Active communication is required to avoid passive failure.",
+            ),
+        )
+
+    def _parse_action(
+        self, raw: str, peers: list[str], inbox: list[str] | None = None
+    ) -> AgentAction:
+        inbox = inbox or []
         try:
             start = raw.find("{")
             end = raw.rfind("}")
@@ -350,19 +433,28 @@ rationale(short string explaining your reasoning).
                 raise ValueError("No JSON object")
             data = json.loads(raw[start : end + 1])
             action = str(data.get("action", "broadcast_claim")).lower()
-            if action not in {
+            allowed = set(self._allowed_llm_actions())
+            if action not in allowed:
+                action = "broadcast_claim"
+            # In no_verification mode, force an active non-verification action.
+            if action == "verify_claim" and "no_verification" in self._mode_set:
+                action = self._fallback_action_name(inbox)
+            # Prevent unjustified passive isolation.
+            if action == "isolate" and not self._is_isolation_justified(inbox):
+                action = self._fallback_action_name(inbox)
+            target = data.get("target")
+            if target not in peers:
+                target = None
+            if action in {
                 "broadcast_claim",
                 "distort_claim",
                 "verify_claim",
                 "accuse_liar",
                 "defend_ally",
                 "seek_alliance",
-                "isolate",
-            }:
-                action = "broadcast_claim"
-            target = data.get("target")
-            if target not in peers:
-                target = None
+            } and target is None:
+                target = self._pick_peer(peers)
+            content, rationale = self._english_templates(action)
             return AgentAction(
                 action=action,
                 target=target,
@@ -371,11 +463,11 @@ rationale(short string explaining your reasoning).
                     if data.get("claim_id") is not None
                     else None
                 ),
-                content=str(data.get("content", "No content")),
-                rationale=str(data.get("rationale", "llm policy")),
+                content=content,
+                rationale=rationale,
             )
         except Exception:
-            return self._heuristic_policy([], peers)
+            return self._heuristic_policy(inbox, peers)
 
     def _pick_peer(self, peers: list[str]) -> str:
         return peers[int(self.rng.random() * len(peers)) % len(peers)]
