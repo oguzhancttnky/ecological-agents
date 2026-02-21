@@ -13,6 +13,15 @@ Instead, this project explores whether artificial agents instantiated from the s
 - uncertainty about the environment
 - limited ability to reason under growing internal complexity
 
+Conceptually, this resembles the development of Star Wars clone troopers.
+
+Although clones are instantiated with identical biological structure and receive the same initial training, individuals deployed to different environments develop distinct beliefs, risk tolerances, trust patterns, and decision-making styles over time as a consequence of their lived experiences.
+
+Their underlying "weights" remain the same,
+but their policy diverges as a function of accumulated interaction with the world.
+
+EcologicalAgents investigates whether a similar form of behavioral divergence can emerge in artificial agents without modifying model parameters.
+
 In biological systems, behavior is shaped by necessity:
 
 - energy metabolism
